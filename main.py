@@ -254,7 +254,7 @@ class MetricCallback(tensorflow.keras.callbacks.Callback):
 if __name__ == '__main__':
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # 　选择使用的GPU
-    path_base = './dataset/data_thchs30'
+    path_base = '/dataset/data_thchs30'
     path_data = join(path_base, 'data')
 
     K.set_learning_phase(1)  # set learning phase
@@ -308,6 +308,7 @@ if __name__ == '__main__':
         img_w=680, img_h=26, output_size=2883 + 2, max_pred_len=48)
 
     # step7：将训练和测试数据转成符合ctc要求的格式
+    # note: 先用 500 个训练，再用 2000 个训练，最后拉满
     x_train2, y_train2 = get_batch(
         x_train[:10640], y_train[:10640], max_pred_len=48, input_length=680)
     x_test2, y_test2 = get_batch(
@@ -331,4 +332,4 @@ if __name__ == '__main__':
     # step9：开始训练
     print("begin")
     model.fit(x=x_train2, y=y_train2, batch_size=1, epochs=1000, validation_data=(x_test2, y_test2),
-              initial_epoch=200, callbacks=[csv_to_log, metric_cb_test, metric_cb_train, checkpointer, lr_change])
+              initial_epoch=0, callbacks=[csv_to_log, metric_cb_test, metric_cb_train, checkpointer, lr_change])
