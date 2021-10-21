@@ -169,7 +169,7 @@ def get_model2(img_w=32, img_h=20, output_size=None, max_pred_len=4):
         [y_pred, labels, input_length, label_length])
 
     # clipnorm seems to speeds up convergence
-    opt = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+    opt = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
     # opt = Adam(lr=0.001)
     model = Model(inputs=[input_tensor, labels,
                   input_length, label_length], outputs=loss_out)
@@ -310,9 +310,9 @@ if __name__ == '__main__':
     # step7：将训练和测试数据转成符合ctc要求的格式
     # note: 先用 500 个训练，再用 2000 个训练，最后拉满
     x_train2, y_train2 = get_batch(
-        x_train[:10640], y_train[:10640], max_pred_len=48, input_length=680)
+        x_train[:10000], y_train[:10000], max_pred_len=48, input_length=680)
     x_test2, y_test2 = get_batch(
-        x_test[:500], y_test[:500], max_pred_len=48, input_length=680)
+        x_test[:100], y_test[:100], max_pred_len=48, input_length=680)
 
     # step8：定义训练相关的callback函数
     idx2w = dict((i, w) for w, i in tok.word_index.items())
@@ -331,5 +331,7 @@ if __name__ == '__main__':
 
     # step9：开始训练
     print("begin")
-    model.fit(x=x_train2, y=y_train2, batch_size=1, epochs=1000, validation_data=(x_test2, y_test2),
-              initial_epoch=0, callbacks=[csv_to_log, metric_cb_test, metric_cb_train, checkpointer, lr_change])
+    model.fit(x=x_train2, y=y_train2, batch_size=64, epochs=1000, validation_data=(x_test2, y_test2),
+              initial_epoch=0, callbacks=[csv_to_log, metric_cb_test, metric_cb_train, checkpointer, lr_change], shuffle=True)
+
+# best vali acc 17%
