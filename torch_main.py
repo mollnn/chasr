@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 dict_size = 2884
 
+batch_size = 16
 
 class MyDataset(torch.utils.data.Dataset):
     def __init__(self):
@@ -24,8 +25,8 @@ class MyDataset(torch.utils.data.Dataset):
         self.pad_lines = [(seq_line + [0]*48)[:48] for seq_line in seq_lines]
         self.pad_lines = torch.tensor(self.pad_lines).unsqueeze(-1)
         # 小数据测试
-        self.mfcc_mat = self.mfcc_mat[:110]
-        self.pad_lines = self.pad_lines[:110]
+        self.mfcc_mat = self.mfcc_mat[:600]
+        self.pad_lines = self.pad_lines[:600]
 
     def __len__(self):
         return len(self.mfcc_mat)
@@ -53,10 +54,9 @@ class ResBlock(torch.nn.Module):
             torch.nn.Conv1d(dim, dim, kernel_size=1, stride=1,
                             dilation=dila, padding=0),
             torch.nn.BatchNorm1d(dim),
-            torch.nn.Sigmoid()
+            torch.nn.Tanh()
         )
         self.shortcut = torch.nn.Sequential()
-        self.post = torch.nn.ReLU()
 
     def forward(self, x):
         x1 = self.f1(x)
@@ -64,7 +64,6 @@ class ResBlock(torch.nn.Module):
         x3 = x1 * x2
         out = self.f(x3)
         out = out + self.shortcut(x)
-        out = self.post(out)
         return out
 
 
@@ -98,6 +97,7 @@ class MyModel(torch.nn.Module):
         self.m2 = ResSum(7, 192)
         self.m3 = ResSum(7, 192)
         self.m4 = ResSum(7, 192)
+        self.m5 = ResSum(7, 192)
         self.post = torch.nn.Sequential(
             torch.nn.Conv1d(192, 192, kernel_size=1, stride=1, padding=0),
             torch.nn.BatchNorm1d(192),
@@ -112,6 +112,7 @@ class MyModel(torch.nn.Module):
         m = m + self.m2(x)
         m = m + self.m3(x)
         m = m + self.m4(x)
+        m = m + self.m5(x)
         m = self.post(m)
         return m
 
@@ -119,17 +120,16 @@ torch.cuda.empty_cache()
 my_dataset = MyDataset()
 
 # data_train, data_test = torch.utils.data.random_split(my_dataset, [13000, 388])
-data_train, data_test = torch.utils.data.random_split(my_dataset, [100, 10])
+data_train, data_test = torch.utils.data.random_split(my_dataset, [512, 600-512])
 
 model = MyModel().cuda()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-batch_size = 4
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 dataloader_train = torch.utils.data.DataLoader(
     data_train, batch_size=batch_size, shuffle=True)
 dataloader_test = torch.utils.data.DataLoader(
     data_test, batch_size=batch_size, shuffle=False)
 
-for epoch in range(20):
+for epoch in range(1000):
     for batch_idx, (x, y_true) in enumerate(tqdm(dataloader_train)):
         x = torch.transpose(x, 1, 2)
         x = x.type(torch.FloatTensor)
@@ -144,5 +144,7 @@ for epoch in range(20):
         target_lengths = torch.tensor(
             [sum([1 for j in i if j > 0]) for i in y_true], dtype=torch.long)
         loss = ctc_loss(log_probs, targets, input_lengths, target_lengths)
+        optimizer.zero_grad()
         loss.backward()
+        optimizer.step()
     print(loss.item())
