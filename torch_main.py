@@ -11,9 +11,24 @@ dict_size = 2884
 
 batch_size = 16
 
+
+def editDistance(str1, str2):
+    matrix = [[i + j for j in range(len(str2) + 1)]
+              for i in range(len(str1) + 1)]
+    for i in range(1, len(str1)+1):
+        for j in range(1, len(str2)+1):
+            if(str1[i-1] == str2[j-1]):
+                d = 0
+            else:
+                d = 1
+            matrix[i][j] = min(matrix[i-1][j]+1, matrix[i]
+                               [j-1]+1, matrix[i-1][j-1]+d)
+    return matrix[len(str1)][len(str2)]
+
+
 class MyDataset(torch.utils.data.Dataset):
     def __init__(self):
-        dataset_path = "./dataset/data_thchs30"
+        dataset_path = "./datasets/data_thchs30"
         self.mfcc_mat = np.load(os.path.join(
             dataset_path, "mfcc_vec_680x26.npy"))
         with codecs.open(os.path.join(dataset_path, "all_texts.txt"), encoding="utf-8") as file_read:
@@ -25,8 +40,8 @@ class MyDataset(torch.utils.data.Dataset):
         self.pad_lines = [(seq_line + [0]*48)[:48] for seq_line in seq_lines]
         self.pad_lines = torch.tensor(self.pad_lines).unsqueeze(-1)
         # 小数据测试
-        self.mfcc_mat = self.mfcc_mat[:600]
-        self.pad_lines = self.pad_lines[:600]
+        self.mfcc_mat = self.mfcc_mat[:512]
+        self.pad_lines = self.pad_lines[:512]
 
     def __len__(self):
         return len(self.mfcc_mat)
@@ -109,27 +124,33 @@ class MyModel(torch.nn.Module):
     def forward(self, x):
         x = self.pre(x)
         m = self.m1(x)
-        m = m + self.m2(x)
-        m = m + self.m3(x)
-        m = m + self.m4(x)
-        m = m + self.m5(x)
+        m += self.m2(x)
+        m += self.m3(x)
+        m += self.m4(x)
+        m += self.m5(x)
         m = self.post(m)
         return m
+
 
 torch.cuda.empty_cache()
 my_dataset = MyDataset()
 
 # data_train, data_test = torch.utils.data.random_split(my_dataset, [13000, 388])
-data_train, data_test = torch.utils.data.random_split(my_dataset, [512, 600-512])
+data_train, data_test = torch.utils.data.random_split(my_dataset, [
+                                                      480, 512-480])
 
 model = MyModel().cuda()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.5)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor = 0.8, patience=1, verbose=True)
 dataloader_train = torch.utils.data.DataLoader(
     data_train, batch_size=batch_size, shuffle=True)
 dataloader_test = torch.utils.data.DataLoader(
     data_test, batch_size=batch_size, shuffle=False)
 
 for epoch in range(1000):
+    print("> epoch", epoch)
+    sum_loss_train = 0
+    sum_error_train = 0
     for batch_idx, (x, y_true) in enumerate(tqdm(dataloader_train)):
         x = torch.transpose(x, 1, 2)
         x = x.type(torch.FloatTensor)
@@ -147,4 +168,46 @@ for epoch in range(1000):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    print(loss.item())
+        sum_loss_train += loss.item()
+
+        if batch_idx < 1:
+            y_pred = torch.argmax(logits, -2).cpu().numpy()
+            y_pred = [[j for j in i if j > 0] for i in y_pred]
+            y_true = y_true.cpu().numpy()
+            y_true = [[j for j in i if j > 0] for i in y_true]
+            sum_error_train += np.average(list(editDistance(yp, yt) /
+                                               max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
+    loss_train = sum_loss_train / len(dataloader_train)
+    cer_train = sum_error_train / min(1, len(dataloader_train))
+
+    sum_loss_test = 0
+    sum_error_test = 0
+    for batch_idx, (x, y_true) in enumerate(dataloader_test):
+        x = torch.transpose(x, 1, 2)
+        x = x.type(torch.FloatTensor)
+        y_true = y_true.squeeze(-1)
+        x, y_true = x.cuda(), y_true.cuda()
+        logits = model(x).log_softmax(2)
+        ctc_loss = torch.nn.CTCLoss().cuda()
+        log_probs = torch.transpose(torch.transpose(
+            logits, 0, 2), 1, 2).requires_grad_()
+        targets = y_true
+        input_lengths = torch.full((batch_size,), 680, dtype=torch.long)
+        target_lengths = torch.tensor(
+            [sum([1 for j in i if j > 0]) for i in y_true], dtype=torch.long)
+        loss = ctc_loss(log_probs, targets, input_lengths, target_lengths)
+        sum_loss_test += loss.item()
+
+        y_pred = torch.argmax(logits, -2).cpu().numpy()
+        y_pred = [[j for j in i if j > 0] for i in y_pred]
+        y_true = y_true.cpu().numpy()
+        y_true = [[j for j in i if j > 0] for i in y_true]
+        sum_error_test += np.average(list(editDistance(yp, yt) /
+                                     max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
+
+    loss_test = sum_loss_test / len(dataloader_test)
+    cer_test = sum_error_test / len(dataloader_test)
+    print("train: ", loss_train, 1 - cer_train)
+    print("test:  ", loss_test, 1 - cer_test)
+    
+    scheduler.step(loss_train)
