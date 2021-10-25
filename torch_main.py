@@ -42,8 +42,8 @@ class MyDataset(torch.utils.data.Dataset):
         self.pad_lines = [(seq_line + [0]*48)[:48] for seq_line in seq_lines]
         self.pad_lines = torch.tensor(self.pad_lines).unsqueeze(-1)
         # 小数据测试
-        self.mfcc_mat = self.mfcc_mat[:512]
-        self.pad_lines = self.pad_lines[:512]
+        self.mfcc_mat = self.mfcc_mat[:10240+128]
+        self.pad_lines = self.pad_lines[:10240+128]
 
     def __len__(self):
         return len(self.mfcc_mat)
@@ -106,23 +106,23 @@ class MyModel(torch.nn.Module):
         self.b24 = ResBlock(5,8,192)
         self.b25 = ResBlock(5,16,192)
 
-        self.b31 = ResBlock(7,1,192)
-        self.b32 = ResBlock(7,2,192)
-        self.b33 = ResBlock(7,4,192)
-        self.b34 = ResBlock(7,8,192)
-        self.b35 = ResBlock(7,16,192)
+        self.b31 = ResBlock(5,1,192)
+        self.b32 = ResBlock(5,2,192)
+        self.b33 = ResBlock(5,4,192)
+        self.b34 = ResBlock(5,8,192)
+        self.b35 = ResBlock(5,16,192)
 
-        self.b41 = ResBlock(9,1,192)
-        self.b42 = ResBlock(9,2,192)
-        self.b43 = ResBlock(9,4,192)
-        self.b44 = ResBlock(9,8,192)
-        self.b45 = ResBlock(9,16,192)
+        self.b41 = ResBlock(7,1,192)
+        self.b42 = ResBlock(7,2,192)
+        self.b43 = ResBlock(7,4,192)
+        self.b44 = ResBlock(7,8,192)
+        self.b45 = ResBlock(7,16,192)
 
-        self.b51 = ResBlock(11,1,192)
-        self.b52 = ResBlock(11,2,192)
-        self.b53 = ResBlock(11,4,192)
-        self.b54 = ResBlock(11,8,192)
-        self.b55 = ResBlock(11,16,192)
+        self.b51 = ResBlock(7,1,192)
+        self.b52 = ResBlock(7,2,192)
+        self.b53 = ResBlock(7,4,192)
+        self.b54 = ResBlock(7,8,192)
+        self.b55 = ResBlock(7,16,192)
 
         self.post = torch.nn.Sequential(
             torch.nn.Conv1d(192, 192, kernel_size=1, stride=1, padding=0),
@@ -200,13 +200,13 @@ my_dataset = MyDataset()
 
 # data_train, data_test = torch.utils.data.random_split(my_dataset, [13000, 388])
 data_train, data_test = torch.utils.data.random_split(my_dataset, [
-                                                      480, 512-480])
+                                                      10240, 128])
 
 model = MyModel().cuda()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor = 0.8, patience=1, verbose=True)
 dataloader_train = torch.utils.data.DataLoader(
-    data_train, batch_size=batch_size, shuffle=False)
+    data_train, batch_size=batch_size, shuffle=True)
 dataloader_test = torch.utils.data.DataLoader(
     data_test, batch_size=batch_size, shuffle=False)
 
@@ -274,3 +274,5 @@ for epoch in range(1000):
     print("test:  ", loss_test, 1 - cer_test)
     
     scheduler.step(loss_train)
+
+# max val rate: 63%
