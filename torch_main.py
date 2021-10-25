@@ -6,10 +6,9 @@ import os
 import codecs
 import pickle
 from tqdm import tqdm
-from torchsummary import summary
 
 dict_size = 2884
-batch_size = 4
+batch_size = 16
 
 def editDistance(str1, str2):
     matrix = [[i + j for j in range(len(str2) + 1)]
@@ -30,6 +29,10 @@ class MyDataset(torch.utils.data.Dataset):
         dataset_path = "./datas/data_thchs30"
         self.mfcc_mat = np.load(os.path.join(
             dataset_path, "mfcc_vec_680x26.npy"))
+        mfcc_mat_min = self.mfcc_mat.min()
+        mfcc_mat_max = self.mfcc_mat.max()
+        self.mfcc_mat = (self.mfcc_mat - mfcc_mat_min) / (mfcc_mat_max - mfcc_mat_min)
+        print("Normalized", self.mfcc_mat.min(), self.mfcc_mat.max())
         with codecs.open(os.path.join(dataset_path, "all_texts.txt"), encoding="utf-8") as file_read:
             text_lines = file_read.readlines()
         token_set = set(list(''.join(text_lines).replace("\n", "")))
@@ -91,17 +94,17 @@ class MyModel(torch.nn.Module):
         )
         self.blocks = [[ResBlock(7,j,192) for j in [1,2,4,8,16]] for i in range(5)]
 
-        self.b11 = ResBlock(7,1,192)
-        self.b12 = ResBlock(7,2,192)
-        self.b13 = ResBlock(7,4,192)
-        self.b14 = ResBlock(7,8,192)
-        self.b15 = ResBlock(7,16,192)
+        self.b11 = ResBlock(3,1,192)
+        self.b12 = ResBlock(3,2,192)
+        self.b13 = ResBlock(3,4,192)
+        self.b14 = ResBlock(3,8,192)
+        self.b15 = ResBlock(3,16,192)
 
-        self.b21 = ResBlock(7,1,192)
-        self.b22 = ResBlock(7,2,192)
-        self.b23 = ResBlock(7,4,192)
-        self.b24 = ResBlock(7,8,192)
-        self.b25 = ResBlock(7,16,192)
+        self.b21 = ResBlock(5,1,192)
+        self.b22 = ResBlock(5,2,192)
+        self.b23 = ResBlock(5,4,192)
+        self.b24 = ResBlock(5,8,192)
+        self.b25 = ResBlock(5,16,192)
 
         self.b31 = ResBlock(7,1,192)
         self.b32 = ResBlock(7,2,192)
@@ -109,17 +112,17 @@ class MyModel(torch.nn.Module):
         self.b34 = ResBlock(7,8,192)
         self.b35 = ResBlock(7,16,192)
 
-        self.b41 = ResBlock(7,1,192)
-        self.b42 = ResBlock(7,2,192)
-        self.b43 = ResBlock(7,4,192)
-        self.b44 = ResBlock(7,8,192)
-        self.b45 = ResBlock(7,16,192)
+        self.b41 = ResBlock(9,1,192)
+        self.b42 = ResBlock(9,2,192)
+        self.b43 = ResBlock(9,4,192)
+        self.b44 = ResBlock(9,8,192)
+        self.b45 = ResBlock(9,16,192)
 
-        self.b51 = ResBlock(7,1,192)
-        self.b52 = ResBlock(7,2,192)
-        self.b53 = ResBlock(7,4,192)
-        self.b54 = ResBlock(7,8,192)
-        self.b55 = ResBlock(7,16,192)
+        self.b51 = ResBlock(11,1,192)
+        self.b52 = ResBlock(11,2,192)
+        self.b53 = ResBlock(11,4,192)
+        self.b54 = ResBlock(11,8,192)
+        self.b55 = ResBlock(11,16,192)
 
         self.post = torch.nn.Sequential(
             torch.nn.Conv1d(192, 192, kernel_size=1, stride=1, padding=0),
@@ -200,14 +203,12 @@ data_train, data_test = torch.utils.data.random_split(my_dataset, [
                                                       480, 512-480])
 
 model = MyModel().cuda()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.5)
-# scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor = 0.8, patience=1, verbose=True)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor = 0.8, patience=1, verbose=True)
 dataloader_train = torch.utils.data.DataLoader(
-    data_train, batch_size=batch_size, shuffle=True)
+    data_train, batch_size=batch_size, shuffle=False)
 dataloader_test = torch.utils.data.DataLoader(
     data_test, batch_size=batch_size, shuffle=False)
-
-summary(model, input_size=(26, 680))
 
 for epoch in range(1000):
     print("> epoch", epoch)
@@ -218,7 +219,7 @@ for epoch in range(1000):
         x = x.type(torch.FloatTensor)
         y_true = y_true.squeeze(-1)
         x, y_true = x.cuda(), y_true.cuda()
-        logits = model(x).log_softmax(2)
+        logits = model(x).log_softmax(1)
         ctc_loss = torch.nn.CTCLoss().cuda()
         log_probs = torch.transpose(torch.transpose(
             logits, 0, 2), 1, 2).requires_grad_()
@@ -249,7 +250,7 @@ for epoch in range(1000):
         x = x.type(torch.FloatTensor)
         y_true = y_true.squeeze(-1)
         x, y_true = x.cuda(), y_true.cuda()
-        logits = model(x).log_softmax(2)
+        logits = model(x).log_softmax(1)
         ctc_loss = torch.nn.CTCLoss().cuda()
         log_probs = torch.transpose(torch.transpose(
             logits, 0, 2), 1, 2).requires_grad_()
@@ -272,4 +273,4 @@ for epoch in range(1000):
     print("train: ", loss_train, 1 - cer_train)
     print("test:  ", loss_test, 1 - cer_test)
     
-    # scheduler.step(loss_train)
+    scheduler.step(loss_train)
