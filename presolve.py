@@ -52,7 +52,7 @@ def get_mfcc_mat(path='', save_name='mfcc_vec_680x26'):
 if __name__ == '__main__':    
     
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-    path_base = './dataset/data_thchs30'
+    path_base = './datas/data_thchs30'
     path_data = join(path_base, 'data')
     
     if not os.path.exists(join(path_base,'mfcc_vec_680x26'+'.npy')):

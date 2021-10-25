@@ -169,8 +169,8 @@ def get_model2(img_w=32, img_h=20, output_size=None, max_pred_len=4):
         [y_pred, labels, input_length, label_length])
 
     # clipnorm seems to speeds up convergence
-    opt = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-    # opt = Adam(lr=0.001)
+    # opt = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+    opt = Adam(lr=0.01)
     model = Model(inputs=[input_tensor, labels,
                   input_length, label_length], outputs=loss_out)
 
@@ -254,7 +254,7 @@ class MetricCallback(tensorflow.keras.callbacks.Callback):
 if __name__ == '__main__':
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # 　选择使用的GPU
-    path_base = './dataset/data_thchs30'
+    path_base = './datas/data_thchs30'
     path_data = join(path_base, 'data')
 
     K.set_learning_phase(1)  # set learning phase
@@ -310,9 +310,9 @@ if __name__ == '__main__':
     # step7：将训练和测试数据转成符合ctc要求的格式
     # note: 先用 500 个训练，再用 2000 个训练，最后拉满
     x_train2, y_train2 = get_batch(
-        x_train[:20], y_train[:20], max_pred_len=48, input_length=680)
+        x_train[:120], y_train[:120], max_pred_len=48, input_length=680)
     x_test2, y_test2 = get_batch(
-        x_test[:20], y_test[:20], max_pred_len=48, input_length=680)
+        x_test[:120], y_test[:120], max_pred_len=48, input_length=680)
 
     # step8：定义训练相关的callback函数
     idx2w = dict((i, w) for w, i in tok.word_index.items())
@@ -326,7 +326,7 @@ if __name__ == '__main__':
     checkpointer = tensorflow.keras.callbacks.ModelCheckpoint(join(
         path_base, "best_weights_680x26.h5"), verbose=1, save_best_only=False, save_weights_only=True, period=3)
     lr_change = ReduceLROnPlateau(
-        monitor="loss", factor=0.5, patience=1, min_lr=0.000, epsilon=0.1, verbose=1)
+        monitor="loss", factor=0.8, patience=1, min_lr=0.000, epsilon=0.1, verbose=1)
     csv_to_log = CSVLogger(join(path_base, "logger_0621.csv"))
 
     # step9：开始训练

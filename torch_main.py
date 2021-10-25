@@ -6,11 +6,10 @@ import os
 import codecs
 import pickle
 from tqdm import tqdm
+from torchsummary import summary
 
 dict_size = 2884
-
-batch_size = 16
-
+batch_size = 4
 
 def editDistance(str1, str2):
     matrix = [[i + j for j in range(len(str2) + 1)]
@@ -28,7 +27,7 @@ def editDistance(str1, str2):
 
 class MyDataset(torch.utils.data.Dataset):
     def __init__(self):
-        dataset_path = "./datasets/data_thchs30"
+        dataset_path = "./datas/data_thchs30"
         self.mfcc_mat = np.load(os.path.join(
             dataset_path, "mfcc_vec_680x26.npy"))
         with codecs.open(os.path.join(dataset_path, "all_texts.txt"), encoding="utf-8") as file_read:
@@ -82,24 +81,6 @@ class ResBlock(torch.nn.Module):
         return out
 
 
-class ResSum(torch.nn.Module):
-    def __init__(self, size, dim):
-        super(ResSum, self).__init__()
-        self.p1 = ResBlock(size, 1, dim)
-        self.p2 = ResBlock(size, 2, dim)
-        self.p3 = ResBlock(size, 4, dim)
-        self.p4 = ResBlock(size, 8, dim)
-        self.p5 = ResBlock(size, 16, dim)
-
-    def forward(self, x):
-        res = self.p1(x)
-        res = res + self.p2(x)
-        res = res + self.p3(x)
-        res = res + self.p4(x)
-        res = res + self.p5(x)
-        return res
-
-
 class MyModel(torch.nn.Module):
     def __init__(self):
         super(MyModel, self).__init__()
@@ -108,11 +89,38 @@ class MyModel(torch.nn.Module):
             torch.nn.BatchNorm1d(192),
             torch.nn.Tanh(),
         )
-        self.m1 = ResSum(7, 192)
-        self.m2 = ResSum(7, 192)
-        self.m3 = ResSum(7, 192)
-        self.m4 = ResSum(7, 192)
-        self.m5 = ResSum(7, 192)
+        self.blocks = [[ResBlock(7,j,192) for j in [1,2,4,8,16]] for i in range(5)]
+
+        self.b11 = ResBlock(7,1,192)
+        self.b12 = ResBlock(7,2,192)
+        self.b13 = ResBlock(7,4,192)
+        self.b14 = ResBlock(7,8,192)
+        self.b15 = ResBlock(7,16,192)
+
+        self.b21 = ResBlock(7,1,192)
+        self.b22 = ResBlock(7,2,192)
+        self.b23 = ResBlock(7,4,192)
+        self.b24 = ResBlock(7,8,192)
+        self.b25 = ResBlock(7,16,192)
+
+        self.b31 = ResBlock(7,1,192)
+        self.b32 = ResBlock(7,2,192)
+        self.b33 = ResBlock(7,4,192)
+        self.b34 = ResBlock(7,8,192)
+        self.b35 = ResBlock(7,16,192)
+
+        self.b41 = ResBlock(7,1,192)
+        self.b42 = ResBlock(7,2,192)
+        self.b43 = ResBlock(7,4,192)
+        self.b44 = ResBlock(7,8,192)
+        self.b45 = ResBlock(7,16,192)
+
+        self.b51 = ResBlock(7,1,192)
+        self.b52 = ResBlock(7,2,192)
+        self.b53 = ResBlock(7,4,192)
+        self.b54 = ResBlock(7,8,192)
+        self.b55 = ResBlock(7,16,192)
+
         self.post = torch.nn.Sequential(
             torch.nn.Conv1d(192, 192, kernel_size=1, stride=1, padding=0),
             torch.nn.BatchNorm1d(192),
@@ -123,13 +131,65 @@ class MyModel(torch.nn.Module):
 
     def forward(self, x):
         x = self.pre(x)
-        m = self.m1(x)
-        m += self.m2(x)
-        m += self.m3(x)
-        m += self.m4(x)
-        m += self.m5(x)
-        m = self.post(m)
-        return m
+        skip = x
+
+        x = self.b11(x)
+        skip = skip + x
+        x = self.b12(x)
+        skip = skip + x
+        x = self.b13(x)
+        skip = skip + x
+        x = self.b14(x)
+        skip = skip + x
+        x = self.b15(x)
+        skip = skip + x
+
+        x = self.b21(x)
+        skip = skip + x
+        x = self.b22(x)
+        skip = skip + x
+        x = self.b23(x)
+        skip = skip + x
+        x = self.b24(x)
+        skip = skip + x
+        x = self.b25(x)
+        skip = skip + x
+
+        x = self.b31(x)
+        skip = skip + x
+        x = self.b32(x)
+        skip = skip + x
+        x = self.b33(x)
+        skip = skip + x
+        x = self.b34(x)
+        skip = skip + x
+        x = self.b35(x)
+        skip = skip + x
+
+        x = self.b41(x)
+        skip = skip + x
+        x = self.b42(x)
+        skip = skip + x
+        x = self.b43(x)
+        skip = skip + x
+        x = self.b44(x)
+        skip = skip + x
+        x = self.b45(x)
+        skip = skip + x
+
+        x = self.b51(x)
+        skip = skip + x
+        x = self.b52(x)
+        skip = skip + x
+        x = self.b53(x)
+        skip = skip + x
+        x = self.b54(x)
+        skip = skip + x
+        x = self.b55(x)
+        skip = skip + x
+
+        res = self.post(skip)
+        return res
 
 
 torch.cuda.empty_cache()
@@ -141,11 +201,13 @@ data_train, data_test = torch.utils.data.random_split(my_dataset, [
 
 model = MyModel().cuda()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.5)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor = 0.8, patience=1, verbose=True)
+# scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor = 0.8, patience=1, verbose=True)
 dataloader_train = torch.utils.data.DataLoader(
     data_train, batch_size=batch_size, shuffle=True)
 dataloader_test = torch.utils.data.DataLoader(
     data_test, batch_size=batch_size, shuffle=False)
+
+summary(model, input_size=(26, 680))
 
 for epoch in range(1000):
     print("> epoch", epoch)
@@ -210,4 +272,4 @@ for epoch in range(1000):
     print("train: ", loss_train, 1 - cer_train)
     print("test:  ", loss_test, 1 - cer_test)
     
-    scheduler.step(loss_train)
+    # scheduler.step(loss_train)

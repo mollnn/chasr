@@ -116,7 +116,7 @@ def get_pad_seq(textlines, maxlen=48):
 if __name__ == '__main__':
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # 　选择使用的GPU
-    path_base = './dataset/data_thchs30'
+    path_base = './datas/data_thchs30'
     path_data = join(path_base, 'data')
 
     K.set_learning_phase(1)  # set learning phase
