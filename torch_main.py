@@ -9,6 +9,9 @@ from tqdm import tqdm
 
 dict_size = 2884
 batch_size = 16
+num_train_data = 512
+num_test_data = 32
+
 
 def editDistance(str1, str2):
     matrix = [[i + j for j in range(len(str2) + 1)]
@@ -31,7 +34,8 @@ class MyDataset(torch.utils.data.Dataset):
             dataset_path, "mfcc_vec_680x26.npy"))
         mfcc_mat_min = self.mfcc_mat.min()
         mfcc_mat_max = self.mfcc_mat.max()
-        self.mfcc_mat = (self.mfcc_mat - mfcc_mat_min) / (mfcc_mat_max - mfcc_mat_min)
+        self.mfcc_mat = (self.mfcc_mat - mfcc_mat_min) / \
+            (mfcc_mat_max - mfcc_mat_min)
         print("Normalized", self.mfcc_mat.min(), self.mfcc_mat.max())
         with codecs.open(os.path.join(dataset_path, "all_texts.txt"), encoding="utf-8") as file_read:
             text_lines = file_read.readlines()
@@ -42,8 +46,8 @@ class MyDataset(torch.utils.data.Dataset):
         self.pad_lines = [(seq_line + [0]*48)[:48] for seq_line in seq_lines]
         self.pad_lines = torch.tensor(self.pad_lines).unsqueeze(-1)
         # 小数据测试
-        self.mfcc_mat = self.mfcc_mat[:10240+128]
-        self.pad_lines = self.pad_lines[:10240+128]
+        self.mfcc_mat = self.mfcc_mat[:num_train_data+num_test_data]
+        self.pad_lines = self.pad_lines[:num_train_data+num_test_data]
 
     def __len__(self):
         return len(self.mfcc_mat)
@@ -92,37 +96,38 @@ class MyModel(torch.nn.Module):
             torch.nn.BatchNorm1d(192),
             torch.nn.Tanh(),
         )
-        self.blocks = [[ResBlock(7,j,192) for j in [1,2,4,8,16]] for i in range(5)]
+        self.blocks = [[ResBlock(7, j, 192)
+                        for j in [1, 2, 4, 8, 16]] for i in range(5)]
 
-        self.b11 = ResBlock(3,1,192)
-        self.b12 = ResBlock(3,2,192)
-        self.b13 = ResBlock(3,4,192)
-        self.b14 = ResBlock(3,8,192)
-        self.b15 = ResBlock(3,16,192)
+        self.b11 = ResBlock(3, 1, 192)
+        self.b12 = ResBlock(3, 2, 192)
+        self.b13 = ResBlock(3, 4, 192)
+        self.b14 = ResBlock(3, 8, 192)
+        self.b15 = ResBlock(3, 16, 192)
 
-        self.b21 = ResBlock(5,1,192)
-        self.b22 = ResBlock(5,2,192)
-        self.b23 = ResBlock(5,4,192)
-        self.b24 = ResBlock(5,8,192)
-        self.b25 = ResBlock(5,16,192)
+        self.b21 = ResBlock(5, 1, 192)
+        self.b22 = ResBlock(5, 2, 192)
+        self.b23 = ResBlock(5, 4, 192)
+        self.b24 = ResBlock(5, 8, 192)
+        self.b25 = ResBlock(5, 16, 192)
 
-        self.b31 = ResBlock(5,1,192)
-        self.b32 = ResBlock(5,2,192)
-        self.b33 = ResBlock(5,4,192)
-        self.b34 = ResBlock(5,8,192)
-        self.b35 = ResBlock(5,16,192)
+        self.b31 = ResBlock(5, 1, 192)
+        self.b32 = ResBlock(5, 2, 192)
+        self.b33 = ResBlock(5, 4, 192)
+        self.b34 = ResBlock(5, 8, 192)
+        self.b35 = ResBlock(5, 16, 192)
 
-        self.b41 = ResBlock(7,1,192)
-        self.b42 = ResBlock(7,2,192)
-        self.b43 = ResBlock(7,4,192)
-        self.b44 = ResBlock(7,8,192)
-        self.b45 = ResBlock(7,16,192)
+        self.b41 = ResBlock(7, 1, 192)
+        self.b42 = ResBlock(7, 2, 192)
+        self.b43 = ResBlock(7, 4, 192)
+        self.b44 = ResBlock(7, 8, 192)
+        self.b45 = ResBlock(7, 16, 192)
 
-        self.b51 = ResBlock(7,1,192)
-        self.b52 = ResBlock(7,2,192)
-        self.b53 = ResBlock(7,4,192)
-        self.b54 = ResBlock(7,8,192)
-        self.b55 = ResBlock(7,16,192)
+        self.b51 = ResBlock(7, 1, 192)
+        self.b52 = ResBlock(7, 2, 192)
+        self.b53 = ResBlock(7, 4, 192)
+        self.b54 = ResBlock(7, 8, 192)
+        self.b55 = ResBlock(7, 16, 192)
 
         self.post = torch.nn.Sequential(
             torch.nn.Conv1d(192, 192, kernel_size=1, stride=1, padding=0),
@@ -200,15 +205,19 @@ my_dataset = MyDataset()
 
 # data_train, data_test = torch.utils.data.random_split(my_dataset, [13000, 388])
 data_train, data_test = torch.utils.data.random_split(my_dataset, [
-                                                      10240, 128])
+                                                      num_train_data, num_test_data])
 
 model = MyModel().cuda()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor = 0.8, patience=1, verbose=True)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, mode='min', factor=0.8, patience=1, verbose=True)
 dataloader_train = torch.utils.data.DataLoader(
     data_train, batch_size=batch_size, shuffle=True)
 dataloader_test = torch.utils.data.DataLoader(
     data_test, batch_size=batch_size, shuffle=False)
+
+best_cer_train = 1e9
+best_cer_test = 1e9
 
 for epoch in range(1000):
     print("> epoch", epoch)
@@ -233,7 +242,7 @@ for epoch in range(1000):
         optimizer.step()
         sum_loss_train += loss.item()
 
-        if batch_idx < 1:
+        if batch_idx < 2:
             y_pred = torch.argmax(logits, -2).cpu().numpy()
             y_pred = [[j for j in i if j > 0] for i in y_pred]
             y_true = y_true.cpu().numpy()
@@ -270,8 +279,12 @@ for epoch in range(1000):
 
     loss_test = sum_loss_test / len(dataloader_test)
     cer_test = sum_error_test / len(dataloader_test)
-    print("train: ", loss_train, 1 - cer_train)
-    print("test:  ", loss_test, 1 - cer_test)
+    
+    best_cer_train = min(best_cer_train, cer_train)
+    best_cer_test = min(best_cer_test, cer_test)
+    
+    print("train: ", loss_train, cer_train, "best", best_cer_train)
+    print("test:  ", loss_test, cer_test, "best", best_cer_test)
     
     scheduler.step(loss_train)
 
