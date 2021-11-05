@@ -8,9 +8,9 @@ import pickle
 from tqdm import tqdm
 
 dict_size = 2884
-batch_size = 16
-num_train_data = 512
-num_test_data = 32
+batch_size = 4
+num_train_data = 16
+num_test_data = 4
 
 
 def editDistance(str1, str2):
@@ -200,6 +200,14 @@ class MyModel(torch.nn.Module):
         return res
 
 
+with open("worddict.pickle", "rb") as fp:
+    word_dict = pickle.load(fp)
+inv_word_dict = dict(zip(word_dict.values(), word_dict.keys()))
+inv_word_dict[0] = ""
+
+def printSeq(seq):
+    print([inv_word_dict[i] for i in seq])
+    
 torch.cuda.empty_cache()
 my_dataset = MyDataset()
 
@@ -208,7 +216,7 @@ data_train, data_test = torch.utils.data.random_split(my_dataset, [
                                                       num_train_data, num_test_data])
 
 model = MyModel().cuda()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode='min', factor=0.8, patience=1, verbose=True)
 dataloader_train = torch.utils.data.DataLoader(
@@ -242,16 +250,21 @@ for epoch in range(1000):
         optimizer.step()
         sum_loss_train += loss.item()
 
-        if batch_idx < 2:
-            y_pred = torch.argmax(logits, -2).cpu().numpy()
-            y_pred = [[j for j in i if j > 0] for i in y_pred]
-            y_true = y_true.cpu().numpy()
-            y_true = [[j for j in i if j > 0] for i in y_true]
-            sum_error_train += np.average(list(editDistance(yp, yt) /
-                                               max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
+#         if batch_idx < 2:
+        y_pred = torch.argmax(logits, -2).cpu().numpy()
+        y_pred = [[j for j in i if j > 0] for i in y_pred]
+        y_true = y_true.cpu().numpy()
+        y_true = [[j for j in i if j > 0] for i in y_true]
+        sum_error_train += np.average(list(editDistance(yp, yt) /
+                                           max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
+        
     loss_train = sum_loss_train / len(dataloader_train)
-    cer_train = sum_error_train / min(1, len(dataloader_train))
+    cer_train = sum_error_train / len(dataloader_train)
 
+    if(cer_train < 0.5):
+        printSeq(y_pred[0])
+        printSeq(y_true[0])
+        
     sum_loss_test = 0
     sum_error_test = 0
     for batch_idx, (x, y_true) in enumerate(dataloader_test):
@@ -285,6 +298,7 @@ for epoch in range(1000):
     
     print("train: ", loss_train, cer_train, "best", best_cer_train)
     print("test:  ", loss_test, cer_test, "best", best_cer_test)
+    
     
     scheduler.step(loss_train)
 

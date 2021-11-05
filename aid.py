@@ -100,6 +100,11 @@ def get_pad_seq(textlines, maxlen=48):
             tok = pickle.load(handle)
             print('load tok')
 
+    print(tok.word_index)
+    with open("worddict.pickle", 'wb') as handle:
+        pickle.dump(tok.word_index, handle)
+    
+
     seq_lines = tok.texts_to_sequences(text_lines[:])
     print('num of words,', len(tok.word_index.keys()))
 

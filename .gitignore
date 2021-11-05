@@ -2,3 +2,4 @@ dataset/*
 dataset
 datas 
 datas/*
+*.pickle
