@@ -8,10 +8,14 @@ import pickle
 from tqdm import tqdm
 
 dict_size = 2884
-batch_size = 4
-num_train_data = 16
-num_test_data = 4
+batch_size = 8
+num_train_data = 64
+num_test_data = 8
 
+with open("worddict.pickle", "rb") as fp:
+    word_dict = pickle.load(fp)
+inv_word_dict = dict(zip(word_dict.values(), word_dict.keys()))
+inv_word_dict[0] = ""
 
 def editDistance(str1, str2):
     matrix = [[i + j for j in range(len(str2) + 1)]
@@ -39,9 +43,9 @@ class MyDataset(torch.utils.data.Dataset):
         print("Normalized", self.mfcc_mat.min(), self.mfcc_mat.max())
         with codecs.open(os.path.join(dataset_path, "all_texts.txt"), encoding="utf-8") as file_read:
             text_lines = file_read.readlines()
-        token_set = set(list(''.join(text_lines).replace("\n", "")))
-        token_map = dict((j, i+1) for i, j in enumerate(token_set))
-        seq_lines = [list(map(lambda x: token_map[x], text_line.replace(
+#         token_set = set(list(''.join(text_lines).replace("\n", "")))
+#         token_map = dict((j, i+1) for i, j in enumerate(token_set))
+        seq_lines = [list(map(lambda x: word_dict[x], text_line.replace(
             "\n", ""))) for text_line in text_lines]
         self.pad_lines = [(seq_line + [0]*48)[:48] for seq_line in seq_lines]
         self.pad_lines = torch.tensor(self.pad_lines).unsqueeze(-1)
@@ -200,10 +204,7 @@ class MyModel(torch.nn.Module):
         return res
 
 
-with open("worddict.pickle", "rb") as fp:
-    word_dict = pickle.load(fp)
-inv_word_dict = dict(zip(word_dict.values(), word_dict.keys()))
-inv_word_dict[0] = ""
+
 
 def printSeq(seq):
     print([inv_word_dict[i] for i in seq])
@@ -250,7 +251,6 @@ for epoch in range(1000):
         optimizer.step()
         sum_loss_train += loss.item()
 
-#         if batch_idx < 2:
         y_pred = torch.argmax(logits, -2).cpu().numpy()
         y_pred = [[j for j in i if j > 0] for i in y_pred]
         y_true = y_true.cpu().numpy()
@@ -299,6 +299,9 @@ for epoch in range(1000):
     print("train: ", loss_train, cer_train, "best", best_cer_train)
     print("test:  ", loss_test, cer_test, "best", best_cer_test)
     
+    if(cer_test < 0.5):
+        printSeq(y_pred[0])
+        printSeq(y_true[0])
     
     scheduler.step(loss_train)
 
