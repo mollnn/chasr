@@ -8,9 +8,9 @@ import pickle
 from tqdm import tqdm
 
 dict_size = 2884
-batch_size = 8
-num_train_data = 64
-num_test_data = 8
+batch_size = 32
+num_train_data = 128
+num_test_data = 32
 
 with open("worddict.pickle", "rb") as fp:
     word_dict = pickle.load(fp)
@@ -100,38 +100,30 @@ class MyModel(torch.nn.Module):
             torch.nn.BatchNorm1d(192),
             torch.nn.Tanh(),
         )
-        self.blocks = [[ResBlock(7, j, 192)
-                        for j in [1, 2, 4, 8, 16]] for i in range(5)]
 
-        self.b11 = ResBlock(3, 1, 192)
-        self.b12 = ResBlock(3, 2, 192)
-        self.b13 = ResBlock(3, 4, 192)
-        self.b14 = ResBlock(3, 8, 192)
-        self.b15 = ResBlock(3, 16, 192)
+        self.b11 = ResBlock(7, 1, 192)
+        self.b12 = ResBlock(7, 2, 192)
+        self.b13 = ResBlock(7, 4, 192)
+        self.b14 = ResBlock(7, 8, 192)
+        self.b15 = ResBlock(7, 16, 192)
 
-        self.b21 = ResBlock(5, 1, 192)
-        self.b22 = ResBlock(5, 2, 192)
-        self.b23 = ResBlock(5, 4, 192)
-        self.b24 = ResBlock(5, 8, 192)
-        self.b25 = ResBlock(5, 16, 192)
+        self.b21 = ResBlock(7, 1, 192)
+        self.b22 = ResBlock(7, 2, 192)
+        self.b23 = ResBlock(7, 4, 192)
+        self.b24 = ResBlock(7, 8, 192)
+        self.b25 = ResBlock(7, 16, 192)
 
-        self.b31 = ResBlock(5, 1, 192)
-        self.b32 = ResBlock(5, 2, 192)
-        self.b33 = ResBlock(5, 4, 192)
-        self.b34 = ResBlock(5, 8, 192)
-        self.b35 = ResBlock(5, 16, 192)
+        self.b31 = ResBlock(7, 1, 192)
+        self.b32 = ResBlock(7, 2, 192)
+        self.b33 = ResBlock(7, 4, 192)
+        self.b34 = ResBlock(7, 8, 192)
+        self.b35 = ResBlock(7, 16, 192)
 
         self.b41 = ResBlock(7, 1, 192)
         self.b42 = ResBlock(7, 2, 192)
         self.b43 = ResBlock(7, 4, 192)
         self.b44 = ResBlock(7, 8, 192)
         self.b45 = ResBlock(7, 16, 192)
-
-        self.b51 = ResBlock(7, 1, 192)
-        self.b52 = ResBlock(7, 2, 192)
-        self.b53 = ResBlock(7, 4, 192)
-        self.b54 = ResBlock(7, 8, 192)
-        self.b55 = ResBlock(7, 16, 192)
 
         self.post = torch.nn.Sequential(
             torch.nn.Conv1d(192, 192, kernel_size=1, stride=1, padding=0),
@@ -189,17 +181,6 @@ class MyModel(torch.nn.Module):
         x = self.b45(x)
         skip = skip + x
 
-        x = self.b51(x)
-        skip = skip + x
-        x = self.b52(x)
-        skip = skip + x
-        x = self.b53(x)
-        skip = skip + x
-        x = self.b54(x)
-        skip = skip + x
-        x = self.b55(x)
-        skip = skip + x
-
         res = self.post(skip)
         return res
 
@@ -208,101 +189,122 @@ class MyModel(torch.nn.Module):
 
 def printSeq(seq):
     print([inv_word_dict[i] for i in seq])
+
+import os
+import math
+import time
+
+os.system("rm model")
+tm = time.time()
+
+while True:
+    torch.cuda.empty_cache()
+    my_dataset = MyDataset()
+
+    # data_train, data_test = torch.utils.data.random_split(my_dataset, [13000, 388])
+    data_train, data_test = torch.utils.data.random_split(my_dataset, [
+                                                          num_train_data, num_test_data])
+
+    model = MyModel().cuda()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.8, patience=1, verbose=True)
+    dataloader_train = torch.utils.data.DataLoader(
+        data_train, batch_size=batch_size, shuffle=True)
+    dataloader_test = torch.utils.data.DataLoader(
+        data_test, batch_size=batch_size, shuffle=False)
+
+    if os.path.exists("model"):
+        checkpoint = torch.load("model")
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
-torch.cuda.empty_cache()
-my_dataset = MyDataset()
+    best_cer_train = 1e9
+    best_cer_test = 1e9
 
-# data_train, data_test = torch.utils.data.random_split(my_dataset, [13000, 388])
-data_train, data_test = torch.utils.data.random_split(my_dataset, [
-                                                      num_train_data, num_test_data])
+    for epoch in range(1000):
+        print("> epoch", epoch, num_train_data, math.floor(time.time()-tm))
+        sum_loss_train = 0
+        sum_error_train = 0
+        for batch_idx, (x, y_true) in enumerate(tqdm(dataloader_train)):
+            x = torch.transpose(x, 1, 2)
+            x = x.type(torch.FloatTensor)
+            y_true = y_true.squeeze(-1)
+            x, y_true = x.cuda(), y_true.cuda()
+            logits = model(x).log_softmax(1)
+            ctc_loss = torch.nn.CTCLoss().cuda()
+            log_probs = torch.transpose(torch.transpose(
+                logits, 0, 2), 1, 2).requires_grad_()
+            targets = y_true
+            input_lengths = torch.full((batch_size,), 680, dtype=torch.long)
+            target_lengths = torch.tensor(
+                [sum([1 for j in i if j > 0]) for i in y_true], dtype=torch.long)
+            loss = ctc_loss(log_probs, targets, input_lengths, target_lengths)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            sum_loss_train += loss.item()
 
-model = MyModel().cuda()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, mode='min', factor=0.8, patience=1, verbose=True)
-dataloader_train = torch.utils.data.DataLoader(
-    data_train, batch_size=batch_size, shuffle=True)
-dataloader_test = torch.utils.data.DataLoader(
-    data_test, batch_size=batch_size, shuffle=False)
+            if batch_idx +1 < len(dataloader_train):
+                continue
+            y_pred = torch.argmax(logits, -2).cpu().numpy()
+            y_pred = [[j for j in i if j > 0] for i in y_pred]
+            y_true = y_true.cpu().numpy()
+            y_true = [[j for j in i if j > 0] for i in y_true]
+#             sum_error_train += np.average(list(editDistance(yp, yt) /
+#                                                max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
 
-best_cer_train = 1e9
-best_cer_test = 1e9
+        loss_train = sum_loss_train / len(dataloader_train)
+#         cer_train = sum_error_train / len(dataloader_train)
 
-for epoch in range(1000):
-    print("> epoch", epoch)
-    sum_loss_train = 0
-    sum_error_train = 0
-    for batch_idx, (x, y_true) in enumerate(tqdm(dataloader_train)):
-        x = torch.transpose(x, 1, 2)
-        x = x.type(torch.FloatTensor)
-        y_true = y_true.squeeze(-1)
-        x, y_true = x.cuda(), y_true.cuda()
-        logits = model(x).log_softmax(1)
-        ctc_loss = torch.nn.CTCLoss().cuda()
-        log_probs = torch.transpose(torch.transpose(
-            logits, 0, 2), 1, 2).requires_grad_()
-        targets = y_true
-        input_lengths = torch.full((batch_size,), 680, dtype=torch.long)
-        target_lengths = torch.tensor(
-            [sum([1 for j in i if j > 0]) for i in y_true], dtype=torch.long)
-        loss = ctc_loss(log_probs, targets, input_lengths, target_lengths)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        sum_loss_train += loss.item()
+        sum_loss_test = 0
+        sum_error_test = 0
+        for batch_idx, (x, y_true) in enumerate(dataloader_test):
+            x = torch.transpose(x, 1, 2)
+            x = x.type(torch.FloatTensor)
+            y_true = y_true.squeeze(-1)
+            x, y_true = x.cuda(), y_true.cuda()
+            logits = model(x).log_softmax(1)
+            ctc_loss = torch.nn.CTCLoss().cuda()
+            log_probs = torch.transpose(torch.transpose(
+                logits, 0, 2), 1, 2).requires_grad_()
+            targets = y_true
+            input_lengths = torch.full((batch_size,), 680, dtype=torch.long)
+            target_lengths = torch.tensor(
+                [sum([1 for j in i if j > 0]) for i in y_true], dtype=torch.long)
+            loss = ctc_loss(log_probs, targets, input_lengths, target_lengths)
+            sum_loss_test += loss.item()
 
-        y_pred = torch.argmax(logits, -2).cpu().numpy()
-        y_pred = [[j for j in i if j > 0] for i in y_pred]
-        y_true = y_true.cpu().numpy()
-        y_true = [[j for j in i if j > 0] for i in y_true]
-        sum_error_train += np.average(list(editDistance(yp, yt) /
-                                           max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
+            y_pred = torch.argmax(logits, -2).cpu().numpy()
+            y_pred = [[j for j in i if j > 0] for i in y_pred]
+            y_true = y_true.cpu().numpy()
+            y_true = [[j for j in i if j > 0] for i in y_true]
+            sum_error_test += np.average(list(editDistance(yp, yt) /
+                                         max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
+
+        loss_test = sum_loss_test / len(dataloader_test)
+        cer_test = sum_error_test / len(dataloader_test)
+
+        best_cer_test = min(best_cer_test, cer_test)
+
+        print("train: ", loss_train)
+        print("test:  ", loss_test, cer_test, "best", best_cer_test)
+
+        if(cer_test < 0.5):
+            printSeq(y_pred[0])
+            printSeq(y_true[0])
+
+        scheduler.step(loss_train)
         
-    loss_train = sum_loss_train / len(dataloader_train)
-    cer_train = sum_error_train / len(dataloader_train)
-
-    if(cer_train < 0.5):
-        printSeq(y_pred[0])
-        printSeq(y_true[0])
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss
+            }, "model")
         
-    sum_loss_test = 0
-    sum_error_test = 0
-    for batch_idx, (x, y_true) in enumerate(dataloader_test):
-        x = torch.transpose(x, 1, 2)
-        x = x.type(torch.FloatTensor)
-        y_true = y_true.squeeze(-1)
-        x, y_true = x.cuda(), y_true.cuda()
-        logits = model(x).log_softmax(1)
-        ctc_loss = torch.nn.CTCLoss().cuda()
-        log_probs = torch.transpose(torch.transpose(
-            logits, 0, 2), 1, 2).requires_grad_()
-        targets = y_true
-        input_lengths = torch.full((batch_size,), 680, dtype=torch.long)
-        target_lengths = torch.tensor(
-            [sum([1 for j in i if j > 0]) for i in y_true], dtype=torch.long)
-        loss = ctc_loss(log_probs, targets, input_lengths, target_lengths)
-        sum_loss_test += loss.item()
-
-        y_pred = torch.argmax(logits, -2).cpu().numpy()
-        y_pred = [[j for j in i if j > 0] for i in y_pred]
-        y_true = y_true.cpu().numpy()
-        y_true = [[j for j in i if j > 0] for i in y_true]
-        sum_error_test += np.average(list(editDistance(yp, yt) /
-                                     max(len(yp), len(yt)) for (yp, yt) in zip(y_pred, y_true)))
-
-    loss_test = sum_loss_test / len(dataloader_test)
-    cer_test = sum_error_test / len(dataloader_test)
-    
-    best_cer_train = min(best_cer_train, cer_train)
-    best_cer_test = min(best_cer_test, cer_test)
-    
-    print("train: ", loss_train, cer_train, "best", best_cer_train)
-    print("test:  ", loss_test, cer_test, "best", best_cer_test)
-    
-    if(cer_test < 0.5):
-        printSeq(y_pred[0])
-        printSeq(y_true[0])
-    
-    scheduler.step(loss_train)
+        if loss_test > loss_train * 1.1 and num_train_data < 12800:
+            num_train_data = min(2*num_train_data, 12800)
+            break
 
 # max val rate: 63%
